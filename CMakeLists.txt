@@ -25,6 +25,7 @@ endif()
 
 # Python scripts
 install( PROGRAMS scripts/bumping DESTINATION lib/${PROJECT_NAME} )
+install( PROGRAMS scripts/scan_echo DESTINATION lib/${PROJECT_NAME} )
 
 # Install resource files.
 install(DIRECTORY
