@@ -1,0 +1,4 @@
+launch:
+    - node:
+        pkg: "uvlarm-Dominique"
+        exec: "bumping"

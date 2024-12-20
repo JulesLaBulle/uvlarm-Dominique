@@ -1,0 +1,8 @@
+source;share/uvlarm-Dominique/hook/cmake_prefix_path.ps1
+source;share/uvlarm-Dominique/hook/cmake_prefix_path.dsv
+source;share/uvlarm-Dominique/hook/cmake_prefix_path.sh
+source;share/uvlarm-Dominique/local_setup.bash
+source;share/uvlarm-Dominique/local_setup.dsv
+source;share/uvlarm-Dominique/local_setup.ps1
+source;share/uvlarm-Dominique/local_setup.sh
+source;share/uvlarm-Dominique/local_setup.zsh
