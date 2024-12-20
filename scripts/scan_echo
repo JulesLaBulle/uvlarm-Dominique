@@ -27,7 +27,7 @@ def scan_callback(scanMsg) :
     rosNode.get_logger().info(f"obs({len(pointCloud.points)}) ...{sample}...")
 
 rclpy.init()
-rosNode= Node('scan_interpreter')
+rosNode= Node('scan_echo')
 rosNode.create_subscription(LaserScan,'scan', scan_callback,10)
 
 rclpy.spin( rosNode)
