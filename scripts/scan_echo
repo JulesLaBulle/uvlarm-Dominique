@@ -43,11 +43,11 @@ class ScanProcessor(Node):
                 aPoint.y = float(math.sin(angle) * aDistance)  # Conversion explicite en float
                 aPoint.z = 0.0  # Assurez-vous que c'est un float
                 pointCloud.points.append(aPoint)
-                self.get_logger().info(f"Point : x = {aPoint.x} /// y = {aPoint.y}")
+                #self.get_logger().info(f"Point : x = {aPoint.x} /// y = {aPoint.y}")
 
         # Publier le nuage de points
         self.publisher.publish(pointCloud)
-        self.get_logger().info(f"Published {len(pointCloud.points)} points.")
+        #self.get_logger().info(f"Published {len(pointCloud.points)} points.")
 
 
 

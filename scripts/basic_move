@@ -35,8 +35,11 @@ class StraightCtrl:
         self._subToScan = None
         self._timForCtrl = None
         
-        self._obs_left = False
-        self._obs_right = False
+        self._obs_left = False  # Objet à gauche
+        self._obs_right = False # Objet à droite
+        self._rotate_left = False   # Obtacle des deux cotés -> évutement par la gauche effectué
+        self._rotate_right = False  # Obtacle des deux cotés -> évutement par la gauche effectué
+        self._last_move = 0     # Derniere direction : gauche = -1 // droite = 1
         
         self._nbr_points_right = 0
         self._nbr_points_left = 0
@@ -85,7 +88,7 @@ class StraightCtrl:
                 self._nbr_points_right += 1
 
      
-        self._logger.info(f"Obstacle Left: {self._obs_left}, Obstacle Right: {self._obs_right}")
+        #self._logger.info(f"Obstacle Left: {self._obs_left}, Obstacle Right: {self._obs_right}")
 
     def control_callback(self):
         # Initialisation des vitesses
@@ -114,36 +117,59 @@ class StraightCtrl:
             return  # Arrêter le callback ici après le traitement du bumper
 
         # Logique de contrôle normale basée sur les obstacles détectés
+        
         if self._obs_right and self._obs_left:
             # Obstacles des deux côtés : rotation sur place pour éviter
-            if self._nbr_points_left > self._nbr_points_right
+            
+            if self._rotate_left & self._rotate_right:
+                # Le robot est coincé, il faut le faire sortir
                 linear_velocity = 0.0
-                angular_velocity = -0.8
+                angular_velocity = 0.8 * self._last_move
+            
             else:
-                linear_velocity = 0.0
-                angular_velocity = 0.8
+                if self._nbr_points_left > self._nbr_points_right:
+                    self._rotate_right = True
+                    linear_velocity = 0.0
+                    angular_velocity = -0.8
+                    
+                    self._last_move = -1
+                else:
+                    self._rotate_left = True
+                    linear_velocity = 0.0
+                    angular_velocity = 0.8
+                    
+                    self._last_move = 1
                 
             self._logger.info("Obstacles détectés des deux côtés. Rotation pour éviter.")
         
-        
-        elif self._obs_right:
-            # Obstacle à droite : tourne à gauche
-            linear_velocity = 0.0
-            angular_velocity = 0.8
+        else :
+            # Réinitialisation 
+            self._rotate_left = False
+            self._rotate_right = False
             
-            self._logger.info("Obstacle détecté à droite. Rotation à gauche.")
-        elif self._obs_left:
-            # Obstacle à gauche : tourne à droite
-            linear_velocity = 0.0
-            angular_velocity = -0.8
-            
-            self._logger.info("Obstacle détecté à gauche. Rotation à droite.")
-        else:
-            # Aucun obstacle : avance tout droit
-            linear_velocity = 0.3
-            angular_velocity = 0.0
-            
-            self._logger.info("Aucun obstacle détecté. Avance tout droit.")
+            # Choix de la direction
+            if self._obs_right:
+                # Obstacle à droite : tourne à gauche
+                linear_velocity = 0.2
+                angular_velocity = 0.8
+                
+                self._last_move = 1
+
+                #self._logger.info("Obstacle détecté à droite. Rotation à gauche.")
+            elif self._obs_left:
+                # Obstacle à gauche : tourne à droite
+                linear_velocity = 0.2
+                angular_velocity = -0.8
+                
+                self._last_move = -1
+
+                #self._logger.info("Obstacle détecté à gauche. Rotation à droite.")
+            else:
+                # Aucun obstacle : avance tout droit
+                linear_velocity = 0.3
+                angular_velocity = 0.0
+
+                #self._logger.info("Aucun obstacle détecté. Avance tout droit.")    
 
         # Création du message Twist pour envoyer les commandes au robot
         velocity_msg = Twist()
