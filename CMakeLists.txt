@@ -24,7 +24,7 @@ if(BUILD_TESTING)
 endif()
 
 # Python scripts
-install( PROGRAMS scripts/bumping DESTINATION lib/${PROJECT_NAME} )
+install( PROGRAMS scripts/bumping.py DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/scan_echo DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/basic_move DESTINATION lib/${PROJECT_NAME} )
 

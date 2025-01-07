@@ -6,33 +6,58 @@ from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
 import math
 
-rosNode = None
 
-def scan_callback(scanMsg) :
-    global rosNode
+class ScanProcessor(Node):
+    def __init__(self):
+        super().__init__('scan_echo')
+        self.publisher = self.create_publisher(PointCloud, '/points', 10)
+        self.subscription = self.create_subscription(
+            LaserScan,
+            'scan',
+            self.scan_callback,
+            10
+        )
+        self.get_logger().info("Node initialized and ready to process scans.")
 
-    pointCloud = PointCloud()
-    angle = scanMsg.angle_min
-    for aDistance in scanMsg.ranges :
-        if 0.1 < aDistance and aDistance < 5.0 :
-            aPoint = Point32()
-            aPoint.x = math.cos(angle) * aDistance
-            aPoint.y = math.sin(angle) * aDistance
-            aPoint.z = 0
-            pointCloud.points.append(aPoint)
-        angle += scanMsg.angle_increment
-    
-    sample = [[round(p.x, 2), round(p.y, 2)] for p in pointCloud.points[10:20]]
+    def scan_callback(self, scanMsg):
+        distance_threshold = 0.6  # Distance limite pour détecter un obstacle (en mètres)
 
-    rosNode.get_logger().info(f"obs({len(pointCloud.points)}) ...{sample}...")
+        # Angles en radians pour -45° et 45°
+        angle_min = -45 * (math.pi / 180)  # -π/4
+        angle_max = 45 * (math.pi / 180)  # π/4
 
-rclpy.init()
-rosNode= Node('scan_echo')
-rosNode.create_subscription(LaserScan,'scan', scan_callback,10)
+        # Calcul des indices correspondants
+        index_min = int((angle_min - scanMsg.angle_min) / scanMsg.angle_increment)
+        index_max = int((angle_max - scanMsg.angle_min) / scanMsg.angle_increment)
 
-rclpy.spin( rosNode)
+        # Créer un nuage de points
+        pointCloud = PointCloud()
+        pointCloud.header = scanMsg.header
 
-scanInterpret.destroy_node()
-rclpy.shutdown()
+        for i in range(index_min, index_max + 1):
+            if 0.1 < scanMsg.ranges[i] < distance_threshold:
+                angle = scanMsg.angle_min + i * scanMsg.angle_increment
+                aDistance = float(scanMsg.ranges[i])  # Conversion explicite en float
+                aPoint = Point32()
+                aPoint.x = float(math.cos(angle) * aDistance)  # Conversion explicite en float
+                aPoint.y = float(math.sin(angle) * aDistance)  # Conversion explicite en float
+                aPoint.z = 0.0  # Assurez-vous que c'est un float
+                pointCloud.points.append(aPoint)
+                self.get_logger().info(f"Point : x = {aPoint.x} /// y = {aPoint.y}")
+
+        # Publier le nuage de points
+        self.publisher.publish(pointCloud)
+        self.get_logger().info(f"Published {len(pointCloud.points)} points.")
 
 
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ScanProcessor()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

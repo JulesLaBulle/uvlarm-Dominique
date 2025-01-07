@@ -1,0 +1,9 @@
+launch:
+    - node:
+        pkg: "uvlarm-Dominique"
+        exec: "scan_echo"
+        name: "scan_echo"
+    - node:
+        pkg: "uvlarm-Dominique"
+        exec: "basic_move"
+        name: "basic_move"
