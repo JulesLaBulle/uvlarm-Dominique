@@ -1,4 +1,4 @@
 launch:
     - node:
         pkg: "uvlarm-Dominique"
-        exec: "bumping"
+        exec: "camera"

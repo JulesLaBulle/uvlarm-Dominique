@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+
+import pyrealsense2 as rs
+import signal, time, numpy as np
+import sys, cv2, rclpy
+from rclpy.node import Node
+import time
+import math
+import sys
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+from rclpy.signals import SignalHandlerOptions
+
+# Global flag for interrupt handling
+isOk = True
+
+def signalInteruption(signum, frame):
+    global isOk
+    print("\nCtrl-c pressed")
+    isOk = False
+
+signal.signal(signal.SIGINT, signalInteruption)
+
+# Node processes:
+def main():
+    global isOk
+    
+    # Initialize ROS Node connected to the camera
+    rclpy.init( signal_handler_options= SignalHandlerOptions.NO )
+    rosNode = Node("RealSense_driver")
+    camera = Realsense()
+    camera.initializeROSnode(rosNode)
+
+    while isOk and rclpy.ok():
+        camera.read_imgs()
+        camera.publish_imgs()
+        rclpy.spin_once(rosNode, timeout_sec=0.001)
+
+    try:
+        camera.disconnect() 
+    except Exception as e:
+        print(f"Failed to disconnect camera: {e}")
+    try:    
+        rosNode.destroy_node()
+    except Exception as e:
+        print(f"Failed to destory rosNode: {e}")
+    try:
+        rclpy.shutdown()
+    except Exception as e:
+        print(f"Failed to shutdown : {e}")
+    
+# Realsense Node:
+class Realsense():
+    def __init__(self, fps= 60):
+        # Initialize attributes
+        # Connect the camera
+        
+        # Configure depth and color streams
+        self.pipeline = rs.pipeline()
+        self.config = rs.config()
+        
+        # Get device product line for setting a supporting resolution
+        self.pipeline_wrapper = rs.pipeline_wrapper(self.pipeline)
+        self.pipeline_profile = self.config.resolve(self.pipeline_wrapper)
+        self.device = self.pipeline_profile.get_device()
+        self.device_product_line = str(self.device.get_info(rs.camera_info.product_line))
+        
+        print( f"Connect: {self.device_product_line}" )
+        self.found_rgb = True
+        for s in self.device.sensors:
+            print( "Name:" + s.get_info(rs.camera_info.name) )
+            if s.get_info(rs.camera_info.name) == 'RGB Camera':
+                self.found_rgb = True
+
+        if not (self.found_rgb):
+            print("Depth camera equired !!!")
+            exit(0)
+
+        self.config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 60)
+        self.config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 60)
+        
+        # Start streaming
+        self.pipeline.start(self.config)
+        
+    def initializeROSnode(self, ros_node):
+        # Initialize publishers
+        self.image_publisher = ros_node.create_publisher(Image, 'sensor_msgs/image', 10)
+        self.depth_publisher = ros_node.create_publisher(Image, 'sensor_msgs/depth', 10)
+        self.ros_node = ros_node
+
+    def read_imgs(self):
+        # Read data from camera
+
+        sys.stdout.write("-")
+        # Wait for a coherent tuple of frames: depth, color and accel
+        self.frames = self.pipeline.wait_for_frames()
+        self.color_frame = self.frames.first(rs.stream.color)
+        self.depth_frame = self.frames.first(rs.stream.depth)
+        
+        # Convert images to numpy arrays
+        self.depth_image = np.asanyarray(self.depth_frame.get_data())
+        self.color_image = np.asanyarray(self.color_frame.get_data())
+        # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
+        self.depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(self.depth_image, alpha=0.03), cv2.COLORMAP_JET)
+        self.depth_colormap_dim = self.depth_colormap.shape
+        self.color_colormap_dim = self.color_image.shape
+                
+    def publish_imgs(self):
+        if not self.ros_node or not rclpy.ok():
+            self.ros_node.get_logger().error("ROS Node is not valid or context is invalid. Cannot publish messages.")
+            return
+
+        try:
+            self.bridge = CvBridge()
+
+            msg_image = self.bridge.cv2_to_imgmsg(self.color_image, "bgr8")
+            msg_image.header.stamp = self.ros_node.get_clock().now().to_msg()
+            msg_image.header.frame_id = "image"
+            self.image_publisher.publish(msg_image)
+
+            msg_depth = self.bridge.cv2_to_imgmsg(self.depth_colormap, "bgr8")
+            msg_depth.header.stamp = msg_image.header.stamp
+            msg_depth.header.frame_id = "depth"
+            self.depth_publisher.publish(msg_depth)
+            #self.ros_node.get_logger().error("Published.")
+            
+        except Exception as e:
+            self.ros_node.get_logger().error(f"Failed to publish images: {e}")
+
+
+    def disconnect(self):
+        # disconnect the camera, free the resource.
+        # Stop streaming
+        print("\nEnding...")
+        self.pipeline.stop()
+
+
+if __name__ == '__main__':
+    main()
