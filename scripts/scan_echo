@@ -36,7 +36,7 @@ class ScanProcessor(Node):
         pointCloud.header = scanMsg.header
 
         for i in range(index_min, index_max + 1):
-            if 0.1 < scanMsg.ranges[i] < distance_threshold:
+            if 0.05 < scanMsg.ranges[i] < distance_threshold:
                 angle = scanMsg.angle_min + i * scanMsg.angle_increment
                 aDistance = float(scanMsg.ranges[i])  # Conversion explicite en float
                 aPoint = Point32()

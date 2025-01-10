@@ -6,6 +6,7 @@ from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
+from kobuki_ros_interfaces.msg import Sound
 
 # Classe principale du nœud ROS
 class GreenObjectDetector:
@@ -14,6 +15,8 @@ class GreenObjectDetector:
         self._publisher = None
         self._subscriber = None
         self._bridge = CvBridge()
+        self._ghost_detected = False
+        self._detection_threshold = 4000
 
     def initializeROSnode(self, ros_node):
         # Initialiser le logger
@@ -22,6 +25,10 @@ class GreenObjectDetector:
         # Initialiser le publisher
         self._publisher = ros_node.create_publisher(
             String, 'green_object_detected', 10
+        )
+        
+        self._sound_publisher = ros_node.create_publisher(
+            Sound, 'commands/sound', 10
         )
 
         # Initialiser le subscriber
@@ -36,8 +43,8 @@ class GreenObjectDetector:
         # Convertir l'image de l'espace BGR à l'espace HSV
         hsv_image = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Définir la plage de couleur pour détecter le vert
-        lower_green = np.array([35, 50, 50])
+        # Définir la plage de couleur pour détecter le vert (en HSV)
+        lower_green = np.array([35, 100, 50])  # Ajuster selon vos besoins
         upper_green = np.array([85, 255, 255])
 
         # Créer un masque basé sur la plage de couleur verte
@@ -46,18 +53,25 @@ class GreenObjectDetector:
         # Compter le nombre de pixels verts dans le masque
         green_pixel_count = cv2.countNonZero(mask)
 
-        self._logger.info(f"{green_pixel_count} pixels verts détéctés.")
-        
+        # self._logger.info(f"{green_pixel_count} pixels verts détéctés.")
+
         # Vérifier si le nombre de pixels verts dépasse un certain seuil
-        if green_pixel_count > 10000  :  # Ajuster le seuil selon les besoins
+        if green_pixel_count > self._detection_threshold and not self._ghost_detected:
             self._publisher.publish(String(data="Fantôme détecté!"))
-        else:
-            self._publisher.publish(String(data="."))
+            sound = Sound()
+            sound.value = 4
+            self._sound_publisher.publish(sound)
+            
+            self._ghost_detected = True
+
+        if green_pixel_count < self._detection_threshold:
+            self._ghost_detected = False
 
         # Afficher l'image originale et l'image masquée (pour le débogage)
         cv2.imshow('Image Originale', frame)
         cv2.imshow('Masque Vert', mask)
         cv2.waitKey(1)  # Attendre 1 ms pour permettre l'affichage
+
 
 # Fonction principale du nœud ROS
 def main():
