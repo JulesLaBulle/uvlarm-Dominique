@@ -14,11 +14,8 @@ import sys
 def main():
     # Initialize ROS and a ROS node
     rclpy.init(args=sys.argv)
-    node = Node('basic_move')
-
-    # Initialize our control:
-    control = StraightCtrl()
-    control.initializeRosNode(node)
+    node = StraightCtrl()
+    node.initializeROSnode()
 
     # Infinite Loop:
     rclpy.spin(node)
@@ -28,8 +25,9 @@ def main():
     rclpy.shutdown()
 
 # Ros Node Class:
-class StraightCtrl:
+class StraightCtrl(Node):
     def __init__(self):
+        super().__init__('basic_move')
         self._logger = None
         self._pubVelocity = None
         self._subToScan = None
@@ -47,7 +45,7 @@ class StraightCtrl:
         self._bumper_state = None
         self._is_reversing = False
         
-        self._can_move = False
+        self._can_move = True
 
         # Vitesse actuelle
         self._current_linear_velocity = 0.0
@@ -66,42 +64,44 @@ class StraightCtrl:
         self._stuck_timer = 0        # Timer pour détecter un blocage
         self._stuck_threshold = 5   # Seuil pour considérer le robot bloqué (nombre d'alternances)
         self._stuck_recovery_timer = 0  # Timer pour la récupération après blocage
+        
+        self.command_topic = self.declare_parameter('command_topic', '/multi/cmd_nav')
 
-    def initializeRosNode(self, rosNode):
+    def initializeROSnode(self):
         # Get logger from the node:
-        self._logger = rosNode.get_logger()
+        self._logger = self.get_logger()
 
         # Initialize scan callback:
-        self._subToPoints = rosNode.create_subscription(
+        self._subToPoints = self.create_subscription(
             PointCloud, '/points',
             self.scan_callback, 10
         )
         
         # Initialize bumper callback
-        self._bumper_subscriber = rosNode.create_subscription(
+        self._bumper_subscriber = self.create_subscription(
             BumperEvent, '/events/bumper',
             self.bumper_callback, 10
         )
         
         # Initialize button callback
-        self._button_subscriber = rosNode.create_subscription(
+        self._button_subscriber = self.create_subscription(
             ButtonEvent, '/events/button',
             self.button_callback, 10
         )
         
         # Initialize pickup callback
-        self._pickup_subscriber = rosNode.create_subscription(
+        self._pickup_subscriber = self.create_subscription(
             WheelDropEvent, '/events/wheel_drop',
             self.pickup_callback, 10
         )
                 
         # Initialize publisher:
-        self._pubVelocity = rosNode.create_publisher(
-            Twist, '/multi/cmd_nav', 10
+        self._pubVelocity = self.create_publisher(
+            Twist, self.command_topic.value, 10
         )
 
         # Initialize control callback:
-        self._timForCtrl = rosNode.create_timer(
+        self._timForCtrl = self.create_timer(
             0.05, self.control_callback
         )
 
