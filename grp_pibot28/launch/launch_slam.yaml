@@ -1,10 +1,10 @@
 launch:
     - node:
-        pkg: "uvlarm-Dominique"
+        pkg: "grp_pibot28"
         exec: "scan_echo"
         name: "scan_echo"
     - node:
-        pkg: "uvlarm-Dominique"
+        pkg: "grp_pibot28"
         exec: "basic_move"
         name: "basic_move"
     - node:
@@ -15,9 +15,9 @@ launch:
         pkg: "rviz2"
         exec: "rviz2"
         name: "rviz2"
-        args: "-d $(find-pkg-share uvlarm-Dominique)/config/slam_config.rviz --ros-args --remap use_sim_time:=True"
+        args: "-d $(find-pkg-share grp_pibot28)/config/slam_config.rviz --ros-args --remap use_sim_time:=True"
         
     - node:
-        pkg: "uvlarm-Dominique"
+        pkg: "grp_pibot28"
         exec: "test_markers"
         name: "test_markers"

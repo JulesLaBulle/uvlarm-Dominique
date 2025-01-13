@@ -1,7 +1,7 @@
 launch:
     - node:
-        pkg: "uvlarm-Dominique"
+        pkg: "grp_pibot28"
         exec: "camera"
     - node:
-        pkg: "uvlarm-Dominique"
+        pkg: "grp_pibot28"
         exec: "detect_ghost"
