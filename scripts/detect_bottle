@@ -1,0 +1,137 @@
+#!/usr/bin/python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+from cv_bridge import CvBridge
+import pyrealsense2 as rs
+import numpy as np
+import math
+import cv2
+from skimage.measure import label, regionprops
+
+
+class BottleDetectorNode(Node):
+    def __init__(self):
+        super().__init__('bottle_detector_node')
+        
+        # Initialisation de la caméra RealSense
+        self.pipeline = rs.pipeline()
+        self.config = rs.config()
+        self.colorizer = rs.colorizer()
+        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+
+        print("Caméra connectée et configurée avec succès.")
+        self.pipeline.start(self.config)
+        self.align_to = rs.stream.depth
+        self.align = rs.align(self.align_to)
+
+        # Initialisation des informations sur les bouteilles détectées
+        self.detected_bottles = {}  # Dictionnaire pour stocker les bouteilles détectées
+        self.bottle_id = 1  # Identifiant initial pour les bouteilles
+        self._bridge = CvBridge()  # Convertisseur entre les images ROS et OpenCV
+        
+        # Création d'un publisher pour publier les informations des bouteilles détectées
+        self.publisher = self.create_publisher(String, 'bottle_detection', 10)
+        
+        # Création d'un timer pour traiter les images en continu
+        self.timer = self.create_timer(0.1, self.process_frame_callback)
+
+        self.get_logger().info("Nœud de détection de bouteilles initialisé !")
+
+    def process_frame_callback(self):
+        try:
+            frames = self.pipeline.wait_for_frames()
+            aligned_frames = self.align.process(frames)
+            depth_frame = aligned_frames.get_depth_frame()
+            aligned_color_frame = aligned_frames.get_color_frame()
+
+            if not depth_frame or not aligned_color_frame:
+                return
+
+            # Conversion des images en format numpy
+            color_image = np.asanyarray(aligned_color_frame.get_data())
+            depth_colormap = np.asanyarray(self.colorizer.colorize(depth_frame).get_data())
+
+            # Conversion de l'image couleur en espace HSV
+            hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255])  # Définir les limites pour la couleur verte
+            mask = cv2.inRange(hsv_image, lo, hi)  # Création d'un masque pour les objets verts
+
+            # Réduction du bruit à l'aide d'opérations morphologiques
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+
+            # Détection des régions connectées
+            label_img = label(mask)
+            regions = regionprops(label_img)
+
+            for props in regions:
+                if props.area < 10000:  # Ignorer les régions trop petites
+                    continue
+
+                # Calculer les coordonnées du centre de la région et la profondeur
+                minr, minc, maxr, maxc = props.bbox
+                x, y = int((minc + maxc) / 2), int((minr + maxr) / 2)
+                depth = depth_frame.get_distance(x, y)
+                if depth <= 0:  # Ignorer les profondeurs invalides
+                    continue
+
+                # Appliquer un filtrage par la forme (bouteilles sont souvent rectangulaires)
+                height, width = maxr - minr, maxc - minc
+                aspect_ratio = height / width
+                if aspect_ratio < 1.5 or aspect_ratio > 5.0:  # Filtrer les objets non rectangulaires
+                    continue
+
+                # Conversion en coordonnées 3D
+                color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
+                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
+
+                # Vérifier si c'est une nouvelle bouteille
+                found = False
+                for bid, position in self.detected_bottles.items():
+                    dist = math.sqrt((position[0] - dx) ** 2 + (position[1] - dy) ** 2 + (position[2] - dz) ** 2)
+                    if dist < 0.05:
+                        found = True
+                        break
+
+                # Si c'est une nouvelle bouteille, publier un message et l'enregistrer
+                if not found:
+                    self.detected_bottles[self.bottle_id] = (dx, dy, dz)
+                    msg = String()
+                    msg.data = f"Bouteille {self.bottle_id} détectée à (x={dx:.2f}, y={dy:.2f}, z={dz:.2f})"
+                    self.publisher.publish(msg)
+                    self.get_logger().info(msg.data)
+                    self.bottle_id += 1
+
+                # Visualisation des résultats de la détection
+                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
+                cv2.putText(color_image, f"ID: {self.bottle_id - 1}", (minc, minr - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+            # Afficher les images
+            combined_image = np.hstack((color_image, depth_colormap))
+            cv2.imshow("Détection de bouteilles", combined_image)
+            cv2.waitKey(1)
+
+        except Exception as e:
+            self.get_logger().error(f"Erreur lors du traitement des images : {e}")
+
+    def destroy_node(self):
+        # Arrêter la caméra
+        self.pipeline.stop()
+        cv2.destroyAllWindows()
+        super().destroy_node()
+
+
+def main():
+    rclpy.init()
+    node = BottleDetectorNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+

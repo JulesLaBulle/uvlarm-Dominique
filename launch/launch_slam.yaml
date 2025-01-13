@@ -1,0 +1,23 @@
+launch:
+    - node:
+        pkg: "uvlarm-Dominique"
+        exec: "scan_echo"
+        name: "scan_echo"
+    - node:
+        pkg: "uvlarm-Dominique"
+        exec: "basic_move"
+        name: "basic_move"
+    - node:
+        pkg: "slam_toolbox"
+        exec: "sync_slam_toolbox_node"
+        name: "online_sync_launch"
+    - node:
+        pkg: "rviz2"
+        exec: "rviz2"
+        name: "rviz2"
+        args: "-d $(find-pkg-share uvlarm-Dominique)/config/slam_config.rviz --ros-args --remap use_sim_time:=True"
+        
+    - node:
+        pkg: "uvlarm-Dominique"
+        exec: "test_markers"
+        name: "test_markers"

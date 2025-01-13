@@ -56,7 +56,7 @@ class StraightCtrl(Node):
         self._max_linear_speed = 0.6
         self._max_angular_speed = 1.8
         self._low_linear_speed = 0.2
-        self._low_angular_speed = 0.9
+        self._low_angular_speed = 0.6
 
         # Détection de blocage
         self._direction_changes = 0  # Compte les alternances gauche/droite
@@ -159,11 +159,11 @@ class StraightCtrl(Node):
                 # Obstacles des deux côtés
                 if self._nbr_points_left > self._nbr_points_right:
                     target_linear_velocity = 0.0
-                    target_angular_velocity = -self._low_angular_speed
+                    target_angular_velocity = -self._max_angular_speed
                     new_direction = -1
                 else:
                     target_linear_velocity = 0.0
-                    target_angular_velocity = self._low_angular_speed
+                    target_angular_velocity = self._max_angular_speed
                     new_direction = 1
 
                 # Vérifier les alternances de direction

@@ -29,6 +29,7 @@ install( PROGRAMS scripts/basic_move DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/camera DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/detect_ghost DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/detect_bottle DESTINATION lib/${PROJECT_NAME} )
+install( PROGRAMS scripts/test_markers DESTINATION lib/${PROJECT_NAME} )
 
 
 # Install resource files.
