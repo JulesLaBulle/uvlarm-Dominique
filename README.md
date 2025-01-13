@@ -56,16 +56,24 @@ ros2 launch uvlarm-Dominique simulation_launch.yaml
    ```
 
 ## Structure du Projet
+
 - **`config`** : 
-  - `launch/simulation_launch.yaml` 
-  - `launch/launch_challenge1.yaml` 
+  - `challenge1_rviz_config.rviz` 
+
 - **`launch`** : 
-  - `launch/simulation_launch.yaml` 
-  - `launch/launch_challenge1.yaml` 
+  - `launch_basic_move.yaml` 
+  - `launch_camera.yaml` 
+  - `launch_challenge1.yaml` 
+  - `launch_scan.yaml` 
+  - `simulation_launch.yaml` 
+
 - **`scripts`** : 
-  - `launch/simulation_launch.yaml` 
-  - `launch/launch_challenge1.yaml` 
-- **`CMakeLists.txt`** : 
-- **`package.xml`** : 
-- **`README.md`** : 
+  - `basic_move` 
+  - `camera` 
+  - `detect_ghost` 
+  - `scan_echo` 
+
+- **`CMakeLists.txt`** 
+- **`package.xml`** 
+- **`README.md`** 
 
