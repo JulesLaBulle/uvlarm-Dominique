@@ -28,7 +28,7 @@ def main():
 class StraightCtrl(Node):
     def __init__(self):
         super().__init__('basic_move')
-        self._logger = None
+        self._logger = self.get_logger()
         self._pubVelocity = None
         self._subToScan = None
         self._timForCtrl = None
@@ -45,7 +45,7 @@ class StraightCtrl(Node):
         self._bumper_state = None
         self._is_reversing = False
         
-        self._can_move = True
+        self._can_move = False
 
         # Vitesse actuelle
         self._current_linear_velocity = 0.0
@@ -119,6 +119,9 @@ class StraightCtrl(Node):
                 self._nbr_points_right += 1
 
     def control_callback(self):
+        
+        if self._logger is None:
+            return  # Attendre que le logger soit initialisé
                 
         if self._can_move:
         
