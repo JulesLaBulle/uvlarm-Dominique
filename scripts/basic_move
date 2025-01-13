@@ -104,6 +104,10 @@ class StraightCtrl(Node):
         self._timForCtrl = self.create_timer(
             0.05, self.control_callback
         )
+        
+        # Makes the robot starting automatically in the simulation 
+        if self.command_topic.value == 'cmd_vel':
+            self._can_move = True
 
     def scan_callback(self, pointCloud):
         self._nbr_points_right = 0
