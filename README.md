@@ -56,8 +56,16 @@ ros2 launch uvlarm-Dominique simulation_launch.yaml
    ```
 
 ## Structure du Projet
-- **`README.md`** : 
-- **`uvlarm-Dominique/`** : 
+- **`config`** : 
   - `launch/simulation_launch.yaml` 
   - `launch/launch_challenge1.yaml` 
+- **`launch`** : 
+  - `launch/simulation_launch.yaml` 
+  - `launch/launch_challenge1.yaml` 
+- **`scripts`** : 
+  - `launch/simulation_launch.yaml` 
+  - `launch/launch_challenge1.yaml` 
+- **`CMakeLists.txt`** : 
+- **`package.xml`** : 
+- **`README.md`** : 
 
