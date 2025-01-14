@@ -10,11 +10,10 @@ import math
 import cv2
 from skimage.measure import label, regionprops
 
-
 class BottleDetectorNode(Node):
     def __init__(self):
         super().__init__('bottle_detector_node')
-        
+
         # Initialisation de la caméra RealSense
         self.pipeline = rs.pipeline()
         self.config = rs.config()
@@ -28,17 +27,23 @@ class BottleDetectorNode(Node):
         self.align = rs.align(self.align_to)
 
         # Initialisation des informations sur les bouteilles détectées
-        self.detected_bottles = {}  # Dictionnaire pour stocker les bouteilles détectées
-        self.bottle_id = 1  # Identifiant initial pour les bouteilles
-        self._bridge = CvBridge()  # Convertisseur entre les images ROS et OpenCV
-        
+        self.detected_bottles = {}
+        self.bottle_id = 1
+        self._bridge = CvBridge()
+
         # Création d'un publisher pour publier les informations des bouteilles détectées
         self.publisher = self.create_publisher(String, 'bottle_detection', 10)
-        
+
         # Création d'un timer pour traiter les images en continu
         self.timer = self.create_timer(0.1, self.process_frame_callback)
 
         self.get_logger().info("Nœud de détection de bouteilles initialisé !")
+
+    def pixel_to_real_size(self, pixel_size, depth, intrinsics):
+        # Conversion de la taille en pixels à la taille réelle avec les paramètres de la caméra
+        fx = intrinsics.fx
+        fy = intrinsics.fy
+        return (pixel_size * depth) / fx, (pixel_size * depth) / fy
 
     def process_frame_callback(self):
         try:
@@ -53,13 +58,12 @@ class BottleDetectorNode(Node):
             # Conversion des images en format numpy
             color_image = np.asanyarray(aligned_color_frame.get_data())
             depth_colormap = np.asanyarray(self.colorizer.colorize(depth_frame).get_data())
-
-            # Conversion de l'image couleur en espace HSV
             hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
-            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255])  # Définir les limites pour la couleur verte
-            mask = cv2.inRange(hsv_image, lo, hi)  # Création d'un masque pour les objets verts
+            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255]) 
+            # Limites de couleur verte
+            mask = cv2.inRange(hsv_image, lo, hi)
 
-            # Réduction du bruit à l'aide d'opérations morphologiques
+            # Réduction du bruit avec des opérations morphologiques
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
 
             # Détection des régions connectées
@@ -67,35 +71,45 @@ class BottleDetectorNode(Node):
             regions = regionprops(label_img)
 
             for props in regions:
-                if props.area < 10000:  # Ignorer les régions trop petites
+                if props.area < 5000:  # Réduction du seuil pour détecter des régions plus petites
                     continue
 
                 # Calculer les coordonnées du centre de la région et la profondeur
                 minr, minc, maxr, maxc = props.bbox
                 x, y = int((minc + maxc) / 2), int((minr + maxr) / 2)
                 depth = depth_frame.get_distance(x, y)
-                if depth <= 0:  # Ignorer les profondeurs invalides
+
+                # Augmentation de la portée maximale
+                if depth <= 0 or depth > 4:  
                     continue
 
-                # Appliquer un filtrage par la forme (bouteilles sont souvent rectangulaires)
+                # Conversion des dimensions en tailles réelles
                 height, width = maxr - minr, maxc - minc
-                aspect_ratio = height / width
-                if aspect_ratio < 1.5 or aspect_ratio > 5.0:  # Filtrer les objets non rectangulaires
+                color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
+                real_height = self.pixel_to_real_size(height, depth, color_intrin)
+                real_width = self.pixel_to_real_size(width, depth, color_intrin)
+
+                # Filtrer selon les dimensions réelles connues des bouteilles
+                if not (0.205 - 0.04 <= real_height[0] <= 0.205 + 0.04) or not (0.065 - 0.02 <= real_width[0] <= 0.105 + 0.02):
+                    continue
+
+                # Vérification du ratio d'aspect
+                aspect_ratio = real_height[0] / real_width[0]
+                if not (1.5 <= aspect_ratio <= 4.0):  # Ratio adapté pour des bouteilles vues de loin
                     continue
 
                 # Conversion en coordonnées 3D
-                color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
                 dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
 
                 # Vérifier si c'est une nouvelle bouteille
                 found = False
-                for bid, position in self.detected_bottles.items():
+                for position in self.detected_bottles.items():
                     dist = math.sqrt((position[0] - dx) ** 2 + (position[1] - dy) ** 2 + (position[2] - dz) ** 2)
-                    if dist < 0.05:
+                    if dist < 0.10:  # Distance augmentée pour inclure des erreurs liées à des objets éloignés
                         found = True
                         break
 
-                # Si c'est une nouvelle bouteille, publier un message et l'enregistrer
+                # Publier une nouvelle détection si la bouteille est nouvelle
                 if not found:
                     self.detected_bottles[self.bottle_id] = (dx, dy, dz)
                     msg = String()
@@ -104,7 +118,7 @@ class BottleDetectorNode(Node):
                     self.get_logger().info(msg.data)
                     self.bottle_id += 1
 
-                # Visualisation des résultats de la détection
+                # Visualisation des résultats
                 cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
                 cv2.putText(color_image, f"ID: {self.bottle_id - 1}", (minc, minr - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
@@ -134,4 +148,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
