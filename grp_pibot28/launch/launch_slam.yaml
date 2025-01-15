@@ -19,5 +19,5 @@ launch:
         
     - node:
         pkg: "grp_pibot28"
-        exec: "test_markers"
-        name: "test_markers"
+        exec: "detect_bottle"
+        name: "detect_bottle"

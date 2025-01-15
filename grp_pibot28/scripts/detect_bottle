@@ -3,6 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
+from geometry_msgs.msg import Point  # Importation du message Point
 from cv_bridge import CvBridge
 import pyrealsense2 as rs
 import numpy as np
@@ -10,10 +11,11 @@ import math
 import cv2
 from skimage.measure import label, regionprops
 
+
 class BottleDetectorNode(Node):
     def __init__(self):
         super().__init__('bottle_detector_node')
-
+        
         # Initialisation de la caméra RealSense
         self.pipeline = rs.pipeline()
         self.config = rs.config()
@@ -21,7 +23,6 @@ class BottleDetectorNode(Node):
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
         self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
 
-        print("Caméra connectée et configurée avec succès.")
         self.pipeline.start(self.config)
         self.align_to = rs.stream.depth
         self.align = rs.align(self.align_to)
@@ -31,8 +32,9 @@ class BottleDetectorNode(Node):
         self.bottle_id = 1
         self._bridge = CvBridge()
 
-        # Création d'un publisher pour publier les informations des bouteilles détectées
-        self.publisher = self.create_publisher(String, 'bottle_detection', 10)
+        # Création des publishers
+        self.string_publisher = self.create_publisher(String, 'bottle_detection', 10)
+        self.marker_publisher = self.create_publisher(Point, 'marker_to_place', 10)
 
         # Création d'un timer pour traiter les images en continu
         self.timer = self.create_timer(0.1, self.process_frame_callback)
@@ -71,7 +73,7 @@ class BottleDetectorNode(Node):
             regions = regionprops(label_img)
 
             for props in regions:
-                if props.area < 5000:  # Réduction du seuil pour détecter des régions plus petites
+                if props.area < 100:  # Réduction du seuil pour détecter des régions plus petites
                     continue
 
                 # Calculer les coordonnées du centre de la région et la profondeur
@@ -80,21 +82,21 @@ class BottleDetectorNode(Node):
                 depth = depth_frame.get_distance(x, y)
 
                 # Augmentation de la portée maximale
-                if depth <= 0 or depth > 4:  
+                if depth <= 0 or depth > 2:  
                     continue
 
                 # Conversion des dimensions en tailles réelles
                 height, width = maxr - minr, maxc - minc
                 color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
-                real_height = self.pixel_to_real_size(height, depth, color_intrin)
-                real_width = self.pixel_to_real_size(width, depth, color_intrin)
+                real_height_y = self.pixel_to_real_size(height, depth, color_intrin)[0]
+                real_width_x = self.pixel_to_real_size(width, depth, color_intrin)[0]   
 
                 # Filtrer selon les dimensions réelles connues des bouteilles
-                if not (0.205 - 0.04 <= real_height[0] <= 0.205 + 0.04) or not (0.065 - 0.02 <= real_width[0] <= 0.105 + 0.02):
+                if not (0.205 - 0.04 <= real_height_y <= 0.205 + 0.04) or not (0.065 - 0.02 <= real_width_x <= 0.105 + 0.02):
                     continue
 
                 # Vérification du ratio d'aspect
-                aspect_ratio = real_height[0] / real_width[0]
+                aspect_ratio = real_height_y / real_width_x
                 if not (1.5 <= aspect_ratio <= 4.0):  # Ratio adapté pour des bouteilles vues de loin
                     continue
 
@@ -103,19 +105,33 @@ class BottleDetectorNode(Node):
 
                 # Vérifier si c'est une nouvelle bouteille
                 found = False
-                for position in self.detected_bottles.items():
-                    dist = math.sqrt((position[0] - dx) ** 2 + (position[1] - dy) ** 2 + (position[2] - dz) ** 2)
-                    if dist < 0.10:  # Distance augmentée pour inclure des erreurs liées à des objets éloignés
+                for _, detected_position in self.detected_bottles.items(): 
+                    dist = math.sqrt(
+                        (detected_position[0] - dx) ** 2 +
+                        (detected_position[1] - dy) ** 2 +
+                        (detected_position[2] - dz) ** 2
+                    )
+                    if dist < 0.03:  # Distance augmentée pour inclure des erreurs liées à des objets éloignés
                         found = True
                         break
 
                 # Publier une nouvelle détection si la bouteille est nouvelle
                 if not found:
                     self.detected_bottles[self.bottle_id] = (dx, dy, dz)
+
+                    # Publier sur le topic 'marker_to_place'
+                    point_msg = Point()
+                    point_msg.x = dx
+                    point_msg.y = dy
+                    point_msg.z = dz
+                    self.marker_publisher.publish(point_msg)
+
+                    # Publier sur le topic 'bottle_detection'
                     msg = String()
                     msg.data = f"Bouteille {self.bottle_id} détectée à (x={dx:.2f}, y={dy:.2f}, z={dz:.2f})"
-                    self.publisher.publish(msg)
+                    self.string_publisher.publish(msg)
                     self.get_logger().info(msg.data)
+
                     self.bottle_id += 1
 
                 # Visualisation des résultats
@@ -136,6 +152,7 @@ class BottleDetectorNode(Node):
         self.pipeline.stop()
         cv2.destroyAllWindows()
         super().destroy_node()
+
 
 
 def main():

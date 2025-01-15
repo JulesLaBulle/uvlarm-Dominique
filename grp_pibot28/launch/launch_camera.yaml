@@ -4,4 +4,4 @@ launch:
         exec: "camera"
     - node:
         pkg: "grp_pibot28"
-        exec: "detect_ghost"
+        exec: "detect_green_object"
