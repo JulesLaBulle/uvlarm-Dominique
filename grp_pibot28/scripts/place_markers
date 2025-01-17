@@ -5,94 +5,279 @@ from rclpy.node import Node
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 import numpy as np
-
+from tf2_msgs.msg import TFMessage
 
 class MarkerArrayPublisher(Node):
     def __init__(self):
         super().__init__('marker_array_publisher')
 
-        # Publisher et subscriber
-        self.publisher = self.create_publisher(MarkerArray, '/slam_toolbox/graph_visualization', 10)
-        self.subscription = self.create_subscription(Point, '/marker_to_place', self.marker_callback, 10)
         self.marker_array = MarkerArray()
 
-        # Définition de la matrice de transformation homogène T
-        self.theta = np.deg2rad(7)  # Angle de rotation (en radians)
-        self.cos_theta = np.cos(self.theta)
-        self.sin_theta = np.sin(self.theta)
-
-        # Matrice de transformation (repère transformé vers repère d'origine)
-        self.T = np.array([
-            [1, 0, 0, 0],
-            [0, self.cos_theta, -self.sin_theta, 115],
-            [0, self.sin_theta, self.cos_theta, 345],
-            [0, 0, 0, 1]
-        ])
-
-        # Inversion de la matrice de transformation
-        self.T_inv = np.linalg.inv(self.T)
+        # Initialisation des matrices de transformation (4x4)
+        self.T_odom_to_footprint = None
+        self.T_footprint_to_odom = None
+        self.T_footprint_to_base = None
+        self.T_base_to_footprint = None
+        self.T_camera_to_base = None
+        self.T_base_to_camera = None
+        self.T_map_to_odom = None
+        self.T_odom_to_map = None
 
         self.get_logger().info("Node initialized and ready to subscribe to marker_to_place topic.")
 
-    def transform_to_origin(self, x1, y1, z1):
-        # Coordonnées homogènes
-        point_transformed = np.array([x1, y1, z1, 1])
+    def initializeROSnode(self):
+        # Get logger from the node:
+        self._logger = self.get_logger()
+
+        # Publisher et subscriber
+        self._sub_to_tf = self.create_subscription(
+            TFMessage, '/tf',
+            self.tf_callback, 10
+        )
+        
+        self._sub_to_tf_static = self.create_subscription(
+            TFMessage, '/tf_static',
+            self.tf_static_callback, 10
+        )
+        
+        self.publisher = self.create_publisher(
+            MarkerArray, '/slam_toolbox/graph_visualization', 10
+        )
+        
+        self.subscription = self.create_subscription(
+            Point, '/marker_to_place', 
+            self.marker_callback, 10
+        )
+        
+    def tf_callback(self, msg):
+        try:
+            for transform in msg.transforms:
+                if transform.header.frame_id == "odom" and transform.child_frame_id == "base_footprint":
+                    # Translation
+                    tx, ty, tz = transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z
+
+                    # Quaternion
+                    qx, qy, qz, qw = (
+                        transform.transform.rotation.x,
+                        transform.transform.rotation.y,
+                        transform.transform.rotation.z,
+                        transform.transform.rotation.w,
+                    )
+
+                    # Validate quaternion
+                    if not all(isinstance(q, float) for q in [qx, qy, qz, qw]):
+                        raise ValueError("Invalid quaternion values in TFMessage.")
+
+                    # Convert quaternion to rotation matrix
+                    rotation_matrix = self.quaternion_to_rotation_matrix(qx, qy, qz, qw)
+
+                    # Build transformation matrix
+                    self.T_odom_to_footprint = np.eye(4)
+                    self.T_odom_to_footprint[:3, :3] = rotation_matrix
+                    self.T_odom_to_footprint[:3, 3] = [tx, ty, tz]
+                    self.T_footprint_to_odom = np.eye(4)
+                    self.T_footprint_to_odom = np.linalg.inv(self.T_odom_to_footprint)
+                    # self.get_logger().info(f"Updated T_odom_to_footprint: {self.T_odom_to_footprint}")
+                    # self.get_logger().info(f"Updated T_footprint_to_odom: {self.T_footprint_to_odom}")
+                
+                if transform.header.frame_id == "map" and transform.child_frame_id == "odom":
+                    # Translation
+                    tx, ty, tz = transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z
+
+                    # Quaternion
+                    qx, qy, qz, qw = (
+                        transform.transform.rotation.x,
+                        transform.transform.rotation.y,
+                        transform.transform.rotation.z,
+                        transform.transform.rotation.w,
+                    )
+
+                    # Validate quaternion
+                    if not all(isinstance(q, float) for q in [qx, qy, qz, qw]):
+                        raise ValueError("Invalid quaternion values in TFMessage.")
+
+                    # Convert quaternion to rotation matrix
+                    rotation_matrix = self.quaternion_to_rotation_matrix(qx, qy, qz, qw)
+
+                    # Build transformation matrix
+                    self.T_map_to_odom = np.eye(4)
+                    self.T_map_to_odom[:3, :3] = rotation_matrix
+                    self.T_map_to_odom[:3, 3] = [tx, ty, tz]
+                    self.T_odom_to_map = np.eye(4)
+                    self.T_odom_to_map = np.linalg.inv(self.T_map_to_odom)
+                    # self.get_logger().info(f"Updated T_map_to_odom: {self.T_map_to_odom}")
+                    # self.get_logger().info(f"Updated T_odom_to_map: {self.T_odom_to_map}")
+        except Exception as e:
+            self.get_logger().error(f"Error in tf_callback: {e}")
+        
+    def tf_static_callback(self, msg):
+        self.get_logger().info("========================= TF STATIC CALLBACK =========================")
+        try:
+            for transform in msg.transforms:
+                if transform.header.frame_id == "base_footprint" and transform.child_frame_id == "base_link":
+                    # Translation
+                    tx, ty, tz = transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z
+
+                    # Quaternion
+                    qx, qy, qz, qw = (
+                        transform.transform.rotation.x,
+                        transform.transform.rotation.y,
+                        transform.transform.rotation.z,
+                        transform.transform.rotation.w,
+                    )
+
+                    # Validate quaternion
+                    if not all(isinstance(q, float) for q in [qx, qy, qz, qw]):
+                        raise ValueError("Invalid quaternion values in TFMessage.")
+
+                    # Convert quaternion to rotation matrix
+                    rotation_matrix = self.quaternion_to_rotation_matrix(qx, qy, qz, qw)
+
+                    # Build transformation matrix
+                    self.T_footprint_to_base = np.eye(4)
+                    self.T_footprint_to_base[:3, :3] = rotation_matrix
+                    self.T_footprint_to_base[:3, 3] = [tx, ty, tz]
+                    self.T_base_to_footprint = np.eye(4)
+                    self.T_base_to_footprint = np.linalg.inv(self.T_footprint_to_base)
+                    self.get_logger().info(f"Updated T_footprint_to_base: {self.T_footprint_to_base}")
+                    self.get_logger().info(f"Updated T_base_to_footprint: {self.T_base_to_footprint}")
+                
+                if transform.header.frame_id == "base_link" and transform.child_frame_id == "camera_link":
+                    # Translation
+                    tx, ty, tz = transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z
+
+                    # Quaternion
+                    qx, qy, qz, qw = (
+                        transform.transform.rotation.x,
+                        transform.transform.rotation.y,
+                        transform.transform.rotation.z,
+                        transform.transform.rotation.w,
+                    )
+
+                    # Validate quaternion
+                    if not all(isinstance(q, float) for q in [qx, qy, qz, qw]):
+                        raise ValueError("Invalid quaternion values in TFMessage.")
+
+                    # Convert quaternion to rotation matrix
+                    rotation_matrix = self.quaternion_to_rotation_matrix(qx, qy, qz, qw)
+
+                    # Build transformation matrix
+                    self.T_base_to_camera = np.eye(4)
+                    self.T_base_to_camera[:3, :3] = rotation_matrix
+                    self.T_base_to_camera[:3, 3] = [tx, ty, tz]
+                    self.T_camera_to_base = np.eye(4)
+                    self.T_camera_to_base = np.linalg.inv(self.T_base_to_camera)
+                    self.get_logger().info(f"Updated T_base_to_camera: {self.T_base_to_camera}")
+                    self.get_logger().info(f"Updated T_base_to_footprint: {self.T_camera_to_base}")
+
+        except Exception as e:
+            self.get_logger().error(f"Error in tf_callback: {e}")
+
+    def transform_to_base(self, T, x1, y1, z1):
+        # Coordonnées homogènes*
+        
+        point_transformed_ = np.array([x1, y1, z1, 1])
+        
+        # Cast to float
+        point_transformed = point_transformed_.astype(float)
 
         # Transformation vers le repère d'origine
-        point_origin = self.T_inv @ point_transformed
+        point_origin = T @ point_transformed
 
         # Extraction des coordonnées dans le repère d'origine
         return point_origin[:3]
 
     def create_marker(self, x, y, z, marker_id):
         marker = Marker()
-        marker.header.frame_id = "map"  # Référentiel de la carte
+        marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = "objects"
-        marker.id = marker_id  # ID unique pour chaque marqueur
-        marker.type = Marker.CYLINDER  # Type de marqueur
+        marker.id = marker_id
+        marker.type = Marker.CYLINDER
         marker.action = Marker.ADD
 
         # Position
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = z
-        marker.pose.orientation.x = 0.0
-        marker.pose.orientation.y = 0.0
-        marker.pose.orientation.z = 0.0
-        marker.pose.orientation.w = 1.0
+        marker.pose.position.x = float(x)
+        marker.pose.position.y = float(y)
+        marker.pose.position.z = float(0.25)
+        marker.pose.orientation.x = float(0.0)
+        marker.pose.orientation.y = float(0.0)
+        marker.pose.orientation.z = float(0.0)
+        marker.pose.orientation.w = float(1.0)
 
         # Dimensions
-        marker.scale.x = 0.1
-        marker.scale.y = 0.1
-        marker.scale.z = 0.5
+        marker.scale.x = float(0.1)
+        marker.scale.y = float(0.1)
+        marker.scale.z = float(0.5)
 
         # Couleur
-        marker.color.r = 0.0
-        marker.color.g = 1.0
-        marker.color.b = 0.0
-        marker.color.a = 1.0  # Opaque
+        marker.color.r = float(0.0)
+        marker.color.g = float(1.0)
+        marker.color.b = float(0.0)
+        marker.color.a = float(1.0)  # Opaque
 
         return marker
 
     def marker_callback(self, msg):
-        x, y, z = self.transform_to_origin(msg.x, msg.y, msg.z)
+        if all(matrix is not None for matrix in [
+            self.T_odom_to_footprint,
+            self.T_footprint_to_odom,
+            self.T_footprint_to_base,
+            self.T_base_to_footprint,
+            self.T_camera_to_base,
+            self.T_base_to_camera, 
+            self.T_map_to_odom,
+            self.T_odom_to_map
+        ]):
+            try:
+                self.get_logger().info(f"Received Point in camera_link: x={msg.x}, y={msg.y}, z={msg.z}")
 
-        # Créer un marker
-        marker_id = len(self.marker_array.markers) + 1  # ID unique pour chaque marker
-        marker = self.create_marker(x, y, z, marker_id)
+                # Transformation des coordonnées
+                x1, y1, z1 = map(float, self.transform_to_base(self.T_camera_to_base, float(msg.x), float(msg.y), float(msg.z)))
+                self.get_logger().info(f"Transformed to base_link: x1={x1:.2f}, y1={y1:.2f}, z1={z1:.2f}")
 
-        # Ajouter au MarkerArray
-        self.marker_array.markers.append(marker)
+                x2, y2, z2 = map(float, self.transform_to_base(self.T_base_to_footprint, x1, y1, z1))
+                self.get_logger().info(f"Transformed to base_footprint: x={x2:.2f}, y={y2:.2f}, z={z2:.2f}")
 
-        # Publier le MarkerArray
-        self.publisher.publish(self.marker_array)
-        self.get_logger().info(f"Published marker ID {marker_id} at (x={x:.2f}, y={y:.2f}, z={z:.2f}).")
+                x3, y3, z3 = map(float, self.transform_to_base(self.T_footprint_to_odom, x2, y2, z2))
+                self.get_logger().info(f"Transformed to odom: x={x3:.2f}, y={y3:.2f}, z={z3:.2f}")
+                
+                x, y, z = map(float, self.transform_to_base(self.T_odom_to_map, x3, y3, z3))
+                self.get_logger().info(f"Transformed to odom: x={x:.2f}, y={y:.2f}, z={z:.2f}")
+
+                # Création d'un marqueur
+                marker_id = len(self.marker_array.markers) + 1
+                marker = self.create_marker(float(x), float(y), float(z), marker_id)
+
+                self.get_logger().info(f"Marker created with ID {marker_id} at (x={marker.pose.position.x:.2f}, y={marker.pose.position.y:.2f}, z={marker.pose.position.z:.2f})")
+
+                # Ajout au MarkerArray
+                self.marker_array.markers.append(marker)
+                #self.get_logger().info(f"Marker ID {marker_id} added to array")
+
+                # Publication du MarkerArray
+                self.publisher.publish(self.marker_array)
+                self.get_logger().info(f"Published marker ID {marker_id}")
+            except Exception as e:
+                self.get_logger().error(f"Error in marker_callback: {e}")
+
+    def quaternion_to_rotation_matrix(self, qx, qy, qz, qw):
+        q = np.array([qw, qx, qy, qz])  # Notez que l'ordre est [w, x, y, z]
+        q = q / np.linalg.norm(q)  # Normalisation
+
+        qw, qx, qy, qz = q
+        rotation_matrix = np.array([
+            [1 - 2 * (qy**2 + qz**2), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+            [2 * (qx * qy + qz * qw), 1 - 2 * (qx**2 + qz**2), 2 * (qy * qz - qx * qw)],
+            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx**2 + qy**2)],
+        ])
+        return rotation_matrix
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = MarkerArrayPublisher()
+    node.initializeROSnode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

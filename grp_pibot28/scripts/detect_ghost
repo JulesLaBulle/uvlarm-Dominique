@@ -1,0 +1,164 @@
+#!/usr/bin/python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+from geometry_msgs.msg import Point
+from cv_bridge import CvBridge
+import pyrealsense2 as rs
+import numpy as np
+import math
+import cv2
+from skimage.measure import label, regionprops
+
+
+class GhostDetectorNode(Node):
+    def __init__(self):
+        super().__init__('ghost_detector_node')
+        
+        # Initialisation de la caméra RealSense
+        self.pipeline = rs.pipeline()
+        self.config = rs.config()
+        self.colorizer = rs.colorizer()
+        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+
+        self.pipeline.start(self.config)
+        self.align_to = rs.stream.depth
+        self.align = rs.align(self.align_to)
+
+        # Initialisation des informations sur les Ghost détectés
+        self.detected_ghosts = {}
+        self.ghost_id = 1
+        self._bridge = CvBridge()
+
+        # Création des publishers
+        self.string_publisher = self.create_publisher(String, 'ghost_detection', 10)
+        self.marker_publisher = self.create_publisher(Point, 'ghost_marker_to_place', 10)
+
+        # Création d'un timer pour traiter les images en continu
+        self.timer = self.create_timer(0.1, self.process_frame_callback)
+
+        self.get_logger().info("Nœud de détection de Ghost initialisé !")
+
+    def pixel_to_real_size(self, pixel_size, depth, intrinsics):
+        fx = intrinsics.fx
+        fy = intrinsics.fy
+        return (pixel_size * depth) / fx, (pixel_size * depth) / fy
+
+    def process_frame_callback(self):
+        try:
+            frames = self.pipeline.wait_for_frames()
+            aligned_frames = self.align.process(frames)
+            depth_frame = aligned_frames.get_depth_frame()
+            aligned_color_frame = aligned_frames.get_color_frame()
+
+            if not depth_frame or not aligned_color_frame:
+                return
+
+            # Conversion des images en format numpy
+            color_image = np.asanyarray(aligned_color_frame.get_data())
+            depth_colormap = np.asanyarray(self.colorizer.colorize(depth_frame).get_data())
+            hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+
+            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255])
+            mask = cv2.inRange(hsv_image, lo, hi)
+
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+
+            label_img = label(mask)
+            regions = regionprops(label_img)
+
+            for props in regions:
+                if props.area < 30:  # Réduction du seuil pour des petits objets
+                    continue
+
+                minr, minc, maxr, maxc = props.bbox
+                x, y = int((minc + maxc) / 2), int((minr + maxr) / 2)
+                depth = depth_frame.get_distance(x, y)
+
+                if depth <= 0 or depth > 2:
+                    continue
+
+                height, width = maxr - minr, maxc - minc
+                color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
+                real_height_y = self.pixel_to_real_size(height, depth, color_intrin)[0]
+                real_width_x = self.pixel_to_real_size(width, depth, color_intrin)[0]
+
+                # Calculer l'épaisseur (thickness)
+                thickness = depth_frame.get_distance(x + 5, y) - depth_frame.get_distance(x - 5, y)
+                real_thickness_z = abs(thickness)
+
+                # Filtrer par dimensions réelles
+                if not (0.07 - 0.03 <= real_height_y <= 0.07 + 0.03) or \
+                   not (0.07 - 0.03 <= real_width_x <= 0.07 + 0.03) or \
+                   not (0.01 - 0.05 <= real_thickness_z <= 0.01 + 0.05):
+                    continue
+
+                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
+
+                found = False
+                for _, detected_position in self.detected_ghosts.items(): 
+                    dist = math.sqrt(
+                        (detected_position[0] - dx) ** 2 +
+                        (detected_position[1] - dy) ** 2 +
+                        (detected_position[2] - dz) ** 2
+                    )
+                    if dist < 0.03:
+                        found = True
+                        break
+                    
+                region_mask = mask[minr:maxr, minc:maxc]                    
+                white_pixel_count = np.sum(region_mask == 255)
+                if white_pixel_count < 80:
+                    continue
+                
+                if real_height_y > 0.07:
+                    green_pixel_count = np.sum(region_mask > 0)
+                        
+                    if green_pixel_count > 100:
+                        continue   
+                     
+                if not found:
+                    self.detected_ghosts[self.ghost_id] = (dx, dy, dz)
+
+                    point_msg = Point()
+                    point_msg.x = dx
+                    point_msg.y = dy
+                    point_msg.z = dz
+                    self.marker_publisher.publish(point_msg)
+
+                    msg = String()
+                    msg.data = f"Ghost {self.ghost_id} détecté à (x={dx:.2f}, y={dy:.2f}, z={dz:.2f})"
+                    self.string_publisher.publish(msg)
+                    self.get_logger().info(msg.data)
+
+                    self.ghost_id += 1
+
+                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 0, 255), 2)  # Bordure rouge
+                cv2.putText(color_image, f"ID: {self.ghost_id - 1}", (minc, minr - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+            combined_image = np.hstack((color_image, depth_colormap))
+            cv2.imshow("Détection de Ghosts", combined_image)
+            cv2.waitKey(1)
+
+        except Exception as e:
+            self.get_logger().error(f"Erreur lors du traitement des images : {e}")
+
+    def destroy_node(self):
+        self.pipeline.stop()
+        cv2.destroyAllWindows()
+        super().destroy_node()
+
+
+def main():
+    rclpy.init()
+    node = GhostDetectorNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

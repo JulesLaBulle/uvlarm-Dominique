@@ -1,5 +1,10 @@
 launch:
     - node:
+        pkg: "rviz2"
+        exec: "rviz2"
+        name: "rviz2"
+        args: "-d $(find-pkg-share grp_pibot28)/config/slam_config.rviz --ros-args --remap use_sim_time:=True"
+    - node:
         pkg: "grp_pibot28"
         exec: "scan_echo"
         name: "scan_echo"
@@ -10,14 +15,13 @@ launch:
     - node:
         pkg: "slam_toolbox"
         exec: "sync_slam_toolbox_node"
-        name: "online_sync_launch"
-    - node:
-        pkg: "rviz2"
-        exec: "rviz2"
-        name: "rviz2"
-        args: "-d $(find-pkg-share grp_pibot28)/config/slam_config.rviz --ros-args --remap use_sim_time:=True"
-        
+        name: "online_sync_launch"        
     - node:
         pkg: "grp_pibot28"
         exec: "detect_bottle"
         name: "detect_bottle"
+
+    - node:
+        pkg: "grp_pibot28"
+        exec: "place_markers"
+        name: "place_markers"
