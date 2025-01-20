@@ -13,7 +13,9 @@ class MarkerArrayPublisher(Node):
         super().__init__('marker_array_publisher')
 
         self.marker_array = MarkerArray()
+        self.display_marker_array = MarkerArray()
         self.marker_id_counter = 0  # Compteur pour attribuer des IDs uniques aux marqueurs
+        self.display_marker_id_counter = 0  # Compteur pour les markers affichés
 
     def initializeROSnode(self):
         # Initialisation de TF Buffer et Listener
@@ -90,16 +92,55 @@ class MarkerArrayPublisher(Node):
         except Exception as e:
             self.get_logger().error(f"Erreur dans marker_callback: {e}")
 
+    def group_markers(self):
+        """
+        Regroupe les markers proches et crée un MarkerArray simplifié.
+        """
+        if not self.marker_array.markers:
+            return
+
+        # Récupérer les positions des markers
+        positions = np.array([
+            [m.pose.position.x, m.pose.position.y, m.pose.position.z]
+            for m in self.marker_array.markers
+        ])
+
+        # Regroupement des markers avec une méthode simple (distance seuil)
+        distance_threshold = 3
+        grouped_positions = []
+        visited = set()
+
+        for i, pos in enumerate(positions):
+            if i in visited:
+                continue
+
+            # Trouver tous les points proches
+            group = [pos]
+            visited.add(i)
+
+            for j, other_pos in enumerate(positions):
+                if j not in visited and np.linalg.norm(pos - other_pos) <= distance_threshold:
+                    group.append(other_pos)
+                    visited.add(j)
+
+            # Calculer le centre du groupe
+            grouped_positions.append(np.mean(group, axis=0))
+
+        # Créer des markers moyens pour chaque groupe
+        self.display_marker_array = MarkerArray()  # Réinitialiser l'array simplifié
+
+        for avg_position in grouped_positions:
+            self.display_marker_id_counter += 1
+            marker = self.create_marker(avg_position[0], avg_position[1], avg_position[2], self.display_marker_id_counter)
+            self.display_marker_array.markers.append(marker)
+
     def publish_marker_array(self):
         """
         Publie le MarkerArray à intervalles réguliers.
         """
         if self.marker_array.markers:
-            # Publie le MarkerArray uniquement s'il contient des marqueurs
-            self.publisher.publish(self.marker_array)
-        #     self.get_logger().info(f"MarkerArray publié avec {len(self.marker_array.markers)} marqueur(s).")
-        # else:
-        #     self.get_logger().info("MarkerArray vide, rien à publier.")
+            self.group_markers()
+            self.publisher.publish(self.display_marker_array)
 
     def create_marker(self, x, y, z, marker_id):
         """

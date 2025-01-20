@@ -16,14 +16,14 @@ class MarkerToPlacePublisher(Node):
         # self.publish_marker_to_place()
         
         # Timer pour publier des messages périodiquement
-        self.timer = self.create_timer(1.0, self.publish_marker_to_place)
+        self.timer = self.create_timer(0.2, self.publish_marker_to_place)
         self.get_logger().info("Node initialized and publishing to /marker_to_place.")
 
     def publish_marker_to_place(self):
         # Création d'un message Point avec des coordonnées aléatoires
         msg = Point()
-        msg.x = random.uniform(-10.0, 10.0)
-        msg.y = random.uniform(-10.0, 10.0)
+        msg.x = random.uniform(-5.0, 5.0)
+        msg.y = random.uniform(-5.0, 5.0)
         msg.z = random.uniform(0.0, 5.0)
 
         # Publication du message

@@ -11,12 +11,17 @@ import math
 import cv2
 from skimage.measure import label, regionprops
 
+
 class GhostDetectorNode(Node):
     def __init__(self):
         super().__init__('ghost_detector_node')
         self.detected_ghosts = {}
         self.ghost_id = 1
         self._bridge = CvBridge()
+        self.pipeline = None
+        self.config = None
+        self.colorizer = None
+        self.align = None
 
     def initializeROSnode(self):
         # Initialisation de la caméra RealSense
@@ -54,63 +59,69 @@ class GhostDetectorNode(Node):
             if not depth_frame or not aligned_color_frame:
                 return
 
-            # Conversion des images en format numpy
             color_image = np.asanyarray(aligned_color_frame.get_data())
             depth_colormap = np.asanyarray(self.colorizer.colorize(depth_frame).get_data())
             hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
-            # Filtrage des pixels verts
-            green_lo, green_hi = np.array([35, 100, 50]), np.array([85, 255, 255])
-            green_mask = cv2.inRange(hsv_image, green_lo, green_hi)
-            green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255])
+            mask = cv2.inRange(hsv_image, lo, hi)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
 
-            # Segmentation et propriétés des régions
-            label_img = label(green_mask)
+            label_img = label(mask)
             regions = regionprops(label_img)
 
             for props in regions:
-                if props.area < 30:  # Filtrer les petits objets
+                if props.area < 30:
                     continue
 
                 minr, minc, maxr, maxc = props.bbox
                 x_pixel, y_pixel = int((minc + maxc) / 2), int((minr + maxr) / 2)
                 depth = depth_frame.get_distance(x_pixel, y_pixel)
 
-                if depth <= 0 or depth > 2:  # Filtrer les objets hors de portée
+                if depth <= 0 or depth > 2:
                     continue
 
-                height, width = maxr - minr, maxc - minc
+                pixel_width = maxc - minc
+                pixel_height = maxr - minr
+
+                aspect_ratio = pixel_width / pixel_height if pixel_height != 0 else 0
+
+                if aspect_ratio > 1.4 or aspect_ratio < 0.7:
+                    continue
+                
                 color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
-                real_height_y = self.pixel_to_real_size(height, depth, color_intrin)[0]
-                real_width_x = self.pixel_to_real_size(width, depth, color_intrin)[0]
+                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x_pixel, y_pixel], depth)
 
-                # Calculer l'épaisseur (thickness)
-                thickness = depth_frame.get_distance(x_pixel + 5, y_pixel) - depth_frame.get_distance(x_pixel - 5, y_pixel)
-                real_thickness_z = abs(thickness)
+                ghost_x = depth
+                ghost_y = -dy
+                ghost_z = dz
 
-                # Filtrer par dimensions réelles
-                if not (0.07 - 0.03 <= real_height_y <= 0.07 + 0.03) or \
-                   not (0.07 - 0.03 <= real_width_x <= 0.07 + 0.03) or \
-                   not (0.01 - 0.05 <= real_thickness_z <= 0.01 + 0.05):
+                pixel_width = maxc - minc
+                pixel_height = maxr - minr
+                area_width = (pixel_width / color_intrin.fx) * depth
+                area_height = (pixel_height / color_intrin.fy) * depth
+                area = area_width * area_height
+
+                target_area = 0.07 * 0.07  
+                area_tolerance = 0.03 * 0.07 
+                if not (target_area - area_tolerance <= area <= target_area + area_tolerance):
                     continue
 
-                # Conversion des pixels en coordonnées réelles dans le repère caméra
-                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x_pixel, y_pixel], depth)
-                ghost_x = depth  # Distance en face
-                ghost_y = -dy    # Vers la gauche
-                ghost_z = -dz    # Vers le haut
+                region_mask = mask[minr:maxr, minc:maxc]
+                white_pixel_count = np.sum(region_mask == 255)
+                if white_pixel_count < 30:
+                    continue
 
-                # Ajouter aux fantômes détectés
                 self.detected_ghosts[self.ghost_id] = (ghost_x, ghost_y, ghost_z)
 
-                # Publier un message Point
+
                 point_msg = Point()
                 point_msg.x = ghost_x
                 point_msg.y = ghost_y
                 point_msg.z = ghost_z
                 self.marker_publisher.publish(point_msg)
 
-                # Publier un message String
+
                 msg = String()
                 msg.data = f"Ghost {self.ghost_id} détecté à (x={ghost_x:.2f}, y={ghost_y:.2f}, z={ghost_z:.2f})"
                 self.string_publisher.publish(msg)
@@ -118,8 +129,7 @@ class GhostDetectorNode(Node):
 
                 self.ghost_id += 1
 
-                # Annoter l'image avec le rectangle et les informations
-                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 0, 255), 2)  # Rectangle rouge
+                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 0, 255), 2) 
                 cv2.putText(color_image, f"ID: {self.ghost_id - 1}", (minc, minr - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                 cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20),
@@ -132,10 +142,12 @@ class GhostDetectorNode(Node):
         except Exception as e:
             self.get_logger().error(f"Erreur lors du traitement des images : {e}")
 
+
     def destroy_node(self):
         self.pipeline.stop()
         cv2.destroyAllWindows()
         super().destroy_node()
+
 
 def main():
     rclpy.init()
@@ -144,6 +156,7 @@ def main():
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
