@@ -11,11 +11,14 @@ import math
 import cv2
 from skimage.measure import label, regionprops
 
-
 class GhostDetectorNode(Node):
     def __init__(self):
         super().__init__('ghost_detector_node')
-        
+        self.detected_ghosts = {}
+        self.ghost_id = 1
+        self._bridge = CvBridge()
+
+    def initializeROSnode(self):
         # Initialisation de la caméra RealSense
         self.pipeline = rs.pipeline()
         self.config = rs.config()
@@ -27,14 +30,9 @@ class GhostDetectorNode(Node):
         self.align_to = rs.stream.depth
         self.align = rs.align(self.align_to)
 
-        # Initialisation des informations sur les Ghost détectés
-        self.detected_ghosts = {}
-        self.ghost_id = 1
-        self._bridge = CvBridge()
-
         # Création des publishers
         self.string_publisher = self.create_publisher(String, 'ghost_detection', 10)
-        self.marker_publisher = self.create_publisher(Point, 'ghost_marker_to_place', 10)
+        self.marker_publisher = self.create_publisher(Point, '/marker_to_place', 10)
 
         # Création d'un timer pour traiter les images en continu
         self.timer = self.create_timer(0.1, self.process_frame_callback)
@@ -61,23 +59,24 @@ class GhostDetectorNode(Node):
             depth_colormap = np.asanyarray(self.colorizer.colorize(depth_frame).get_data())
             hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
-            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255])
-            mask = cv2.inRange(hsv_image, lo, hi)
+            # Filtrage des pixels verts
+            green_lo, green_hi = np.array([35, 100, 50]), np.array([85, 255, 255])
+            green_mask = cv2.inRange(hsv_image, green_lo, green_hi)
+            green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
 
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-
-            label_img = label(mask)
+            # Segmentation et propriétés des régions
+            label_img = label(green_mask)
             regions = regionprops(label_img)
 
             for props in regions:
-                if props.area < 30:  # Réduction du seuil pour des petits objets
+                if props.area < 30:  # Filtrer les petits objets
                     continue
 
                 minr, minc, maxr, maxc = props.bbox
-                x, y = int((minc + maxc) / 2), int((minr + maxr) / 2)
-                depth = depth_frame.get_distance(x, y)
+                x_pixel, y_pixel = int((minc + maxc) / 2), int((minr + maxr) / 2)
+                depth = depth_frame.get_distance(x_pixel, y_pixel)
 
-                if depth <= 0 or depth > 2:
+                if depth <= 0 or depth > 2:  # Filtrer les objets hors de portée
                     continue
 
                 height, width = maxr - minr, maxc - minc
@@ -86,7 +85,7 @@ class GhostDetectorNode(Node):
                 real_width_x = self.pixel_to_real_size(width, depth, color_intrin)[0]
 
                 # Calculer l'épaisseur (thickness)
-                thickness = depth_frame.get_distance(x + 5, y) - depth_frame.get_distance(x - 5, y)
+                thickness = depth_frame.get_distance(x_pixel + 5, y_pixel) - depth_frame.get_distance(x_pixel - 5, y_pixel)
                 real_thickness_z = abs(thickness)
 
                 # Filtrer par dimensions réelles
@@ -95,49 +94,36 @@ class GhostDetectorNode(Node):
                    not (0.01 - 0.05 <= real_thickness_z <= 0.01 + 0.05):
                     continue
 
-                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
+                # Conversion des pixels en coordonnées réelles dans le repère caméra
+                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x_pixel, y_pixel], depth)
+                ghost_x = depth  # Distance en face
+                ghost_y = -dy    # Vers la gauche
+                ghost_z = -dz    # Vers le haut
 
-                found = False
-                for _, detected_position in self.detected_ghosts.items(): 
-                    dist = math.sqrt(
-                        (detected_position[0] - dx) ** 2 +
-                        (detected_position[1] - dy) ** 2 +
-                        (detected_position[2] - dz) ** 2
-                    )
-                    if dist < 0.03:
-                        found = True
-                        break
-                    
-                region_mask = mask[minr:maxr, minc:maxc]                    
-                white_pixel_count = np.sum(region_mask == 255)
-                if white_pixel_count < 80:
-                    continue
-                
-                if real_height_y > 0.07:
-                    green_pixel_count = np.sum(region_mask > 0)
-                        
-                    if green_pixel_count > 100:
-                        continue   
-                     
-                if not found:
-                    self.detected_ghosts[self.ghost_id] = (dx, dy, dz)
+                # Ajouter aux fantômes détectés
+                self.detected_ghosts[self.ghost_id] = (ghost_x, ghost_y, ghost_z)
 
-                    point_msg = Point()
-                    point_msg.x = dx
-                    point_msg.y = dy
-                    point_msg.z = dz
-                    self.marker_publisher.publish(point_msg)
+                # Publier un message Point
+                point_msg = Point()
+                point_msg.x = ghost_x
+                point_msg.y = ghost_y
+                point_msg.z = ghost_z
+                self.marker_publisher.publish(point_msg)
 
-                    msg = String()
-                    msg.data = f"Ghost {self.ghost_id} détecté à (x={dx:.2f}, y={dy:.2f}, z={dz:.2f})"
-                    self.string_publisher.publish(msg)
-                    self.get_logger().info(msg.data)
+                # Publier un message String
+                msg = String()
+                msg.data = f"Ghost {self.ghost_id} détecté à (x={ghost_x:.2f}, y={ghost_y:.2f}, z={ghost_z:.2f})"
+                self.string_publisher.publish(msg)
+                self.get_logger().info(msg.data)
 
-                    self.ghost_id += 1
+                self.ghost_id += 1
 
-                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 0, 255), 2)  # Bordure rouge
-                cv2.putText(color_image, f"ID: {self.ghost_id - 1}", (minc, minr - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+                # Annoter l'image avec le rectangle et les informations
+                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 0, 255), 2)  # Rectangle rouge
+                cv2.putText(color_image, f"ID: {self.ghost_id - 1}", (minc, minr - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
             combined_image = np.hstack((color_image, depth_colormap))
             cv2.imshow("Détection de Ghosts", combined_image)
@@ -151,14 +137,13 @@ class GhostDetectorNode(Node):
         cv2.destroyAllWindows()
         super().destroy_node()
 
-
 def main():
     rclpy.init()
     node = GhostDetectorNode()
+    node.initializeROSnode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
