@@ -18,8 +18,8 @@ launch:
         name: "online_sync_launch"        
     - node:
         pkg: "grp_pibot28"
-        exec: "detect_bottle"
-        name: "detect_bottle"
+        exec: "detect_ghost"
+        name: "detect_ghost"
 
     - node:
         pkg: "grp_pibot28"

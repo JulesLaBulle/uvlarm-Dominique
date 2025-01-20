@@ -33,7 +33,6 @@ install( PROGRAMS scripts/place_markers DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/test_markers_to_place DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS scripts/detect_ghost DESTINATION lib/${PROJECT_NAME} )
 
-
 # Install resource files.
 install(DIRECTORY
   launch

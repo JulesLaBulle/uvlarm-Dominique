@@ -74,7 +74,7 @@ class StraightCtrl(Node):
         # Initialize scan callback:
         self._subToPoints = self.create_subscription(
             PointCloud, '/points',
-            self.scan_callback, 10
+            self.scan_callback, 100
         )
         
         # Initialize bumper callback

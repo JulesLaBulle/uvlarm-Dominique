@@ -12,6 +12,9 @@ class MarkerToPlacePublisher(Node):
         # Création d'un Publisher sur le topic /marker_to_place
         self.publisher_ = self.create_publisher(Point, '/marker_to_place', 10)
 
+        # Publier un seul marker
+        # self.publish_marker_to_place()
+        
         # Timer pour publier des messages périodiquement
         self.timer = self.create_timer(1.0, self.publish_marker_to_place)
         self.get_logger().info("Node initialized and publishing to /marker_to_place.")
