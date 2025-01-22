@@ -51,12 +51,19 @@ class StraightCtrl(Node):
         self._current_linear_velocity = 0.0
         self._current_angular_velocity = 0.0
 
-        # Paramètres de lissage et limites
+        # Anciens Paramètres de lissage et limites
         self._velocity_smoothing_factor = 0.08
         self._max_linear_speed = 0.6
         self._max_angular_speed = 1.8
         self._low_linear_speed = 0.2
         self._low_angular_speed = 0.6
+        
+        # # Paramètres de lissage et limites
+        # self._velocity_smoothing_factor = 0.2
+        # self._max_linear_speed = 0.4
+        # self._max_angular_speed = 0.8
+        # self._low_linear_speed = 0.1
+        # self._low_angular_speed = 0.5
 
         # Détection de blocage
         self._direction_changes = 0  # Compte les alternances gauche/droite
@@ -74,7 +81,7 @@ class StraightCtrl(Node):
         # Initialize scan callback:
         self._subToPoints = self.create_subscription(
             PointCloud, '/points',
-            self.scan_callback, 100
+            self.scan_callback, 10
         )
         
         # Initialize bumper callback
@@ -240,6 +247,7 @@ class StraightCtrl(Node):
     def pickup_callback(self, msg):
         if msg.state == WheelDropEvent.DROPPED:
             self._can_move = False
+
 
 # Go:
 if __name__ == '__main__':

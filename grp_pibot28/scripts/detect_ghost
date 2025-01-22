@@ -28,8 +28,8 @@ class GhostDetectorNode(Node):
         self.pipeline = rs.pipeline()
         self.config = rs.config()
         self.colorizer = rs.colorizer()
-        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-        self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        self.config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 60)
+        self.config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 60)
 
         self.pipeline.start(self.config)
         self.align_to = rs.stream.depth
@@ -112,6 +112,18 @@ class GhostDetectorNode(Node):
                 if white_pixel_count < 30:
                     continue
 
+
+                vertical_lengths = np.sum(region_mask, axis=0) // 255  
+                horizontal_lengths = np.sum(region_mask, axis=1) // 255   
+
+                max_vertical_length = np.max(vertical_lengths)
+                max_horizontal_length = np.max(horizontal_lengths)
+
+                if max_vertical_length > 2 * max_horizontal_length:
+                    self.get_logger().info("Region filtrée en raison de longueur verticale excessive.")
+                    continue
+                
+                
                 self.detected_ghosts[self.ghost_id] = (ghost_x, ghost_y, ghost_z)
 
 

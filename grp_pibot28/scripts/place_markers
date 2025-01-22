@@ -106,7 +106,7 @@ class MarkerArrayPublisher(Node):
         ])
 
         # Regroupement des markers avec une méthode simple (distance seuil)
-        distance_threshold = 3
+        distance_threshold = 1.2
         grouped_positions = []
         visited = set()
 

@@ -18,4 +18,4 @@ launch:
         pkg: "rviz2"
         exec: "rviz2"
         name: "rviz2"
-        args: "-d $(find-pkg-share grp_pibot28)/config/slam_config.rviz --ros-args --remap use_sim_time:=True"
+        args: "-d $(find-pkg-share grp_pibot28)/config/default.rviz --ros-args --remap use_sim_time:=True"
