@@ -37,6 +37,7 @@ install( PROGRAMS scripts/detect_ghost DESTINATION lib/${PROJECT_NAME} )
 install(DIRECTORY
   launch
   config
+  include
   DESTINATION share/${PROJECT_NAME}/
 )
 

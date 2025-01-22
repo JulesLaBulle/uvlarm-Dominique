@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 import rclpy
+import os
+from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
@@ -8,20 +10,37 @@ from cv_bridge import CvBridge
 import pyrealsense2 as rs
 import numpy as np
 import math
-import cv2
-from skimage.measure import label, regionprops
+from ultralytics import YOLO
+import sys, cv2
+
+
+# Récupérer le chemin d'installation du package ROS2
+package_name = "grp_pibot28"
+package_share_dir = get_package_share_directory(package_name)
+
+# Construire le chemin vers le fichier de poids
+weights_path = os.path.join(package_share_dir, "include/ia_image_detection/runs/detect/train5/weights/last.pt")
+
+# Vérifier si le fichier existe
+if not os.path.exists(weights_path):
+    raise FileNotFoundError(f"Le fichier de poids n'a pas été trouvé : {weights_path}")
+
+# Charger le modèle
+model = YOLO(weights_path)
+threshold = 0.5
 
 
 class GhostDetectorNode(Node):
     def __init__(self):
         super().__init__('ghost_detector_node')
-        self.detected_ghosts = {}
-        self.ghost_id = 1
+        # self.detected_ghosts = {}
+        # self.ghost_id = 1
         self._bridge = CvBridge()
         self.pipeline = None
         self.config = None
         self.colorizer = None
         self.align = None
+        self.color_image = None
 
     def initializeROSnode(self):
         # Initialisation de la caméra RealSense
@@ -36,7 +55,6 @@ class GhostDetectorNode(Node):
         self.align = rs.align(self.align_to)
 
         # Création des publishers
-        self.string_publisher = self.create_publisher(String, 'ghost_detection', 10)
         self.marker_publisher = self.create_publisher(Point, '/marker_to_place', 10)
 
         # Création d'un timer pour traiter les images en continu
@@ -44,10 +62,7 @@ class GhostDetectorNode(Node):
 
         self.get_logger().info("Nœud de détection de Ghost initialisé !")
 
-    def pixel_to_real_size(self, pixel_size, depth, intrinsics):
-        fx = intrinsics.fx
-        fy = intrinsics.fy
-        return (pixel_size * depth) / fx, (pixel_size * depth) / fy
+
 
     def process_frame_callback(self):
         try:
@@ -55,101 +70,61 @@ class GhostDetectorNode(Node):
             aligned_frames = self.align.process(frames)
             depth_frame = aligned_frames.get_depth_frame()
             aligned_color_frame = aligned_frames.get_color_frame()
-
+            
             if not depth_frame or not aligned_color_frame:
                 return
 
-            color_image = np.asanyarray(aligned_color_frame.get_data())
+            self.color_image = np.asanyarray(aligned_color_frame.get_data())
             depth_colormap = np.asanyarray(self.colorizer.colorize(depth_frame).get_data())
-            hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+            hsv_image = cv2.cvtColor(self.color_image, cv2.COLOR_BGR2HSV)
+            
+            frame = self.color_image
+        
+            results = model(frame)[0]
+            for result in results.boxes.data.tolist():
+                x1, y1, x2, y2, score, class_id = result
+                if score > threshold:
+                    if int(class_id) == 0:
+                        
+                        x_on_screen = (x1 + x2) / 2
+                        y_on_screen = (y1 + y2) / 2
+                        
+                        if x_on_screen < 150 or x_on_screen > 650:
+                            return
+                        
+                        if y_on_screen < 150 or y_on_screen > 300:
+                            return
+                        
+                        depth = depth_frame.get_distance(int(x_on_screen), int(y_on_screen))
+            
+                        if depth <= 0.2 or depth > 2.5:
+                            return
 
-            lo, hi = np.array([35, 100, 50]), np.array([85, 255, 255])
-            mask = cv2.inRange(hsv_image, lo, hi)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+                        color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
+                        dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x_on_screen, y_on_screen], depth)
+                        ghost_x = depth
+                        ghost_y = dx
+                        ghost_z = dy
+                        
+                        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                        cv2.putText(frame, results.names[int(class_id)].upper(), 
+                            (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+                        cv2.putText(self.color_image, f"Profondeur: {depth:.2f}m", (int(x1), int(y2) + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                        
+                        point_msg = Point()
+                        point_msg.x = ghost_x
+                        point_msg.y = ghost_y
+                        point_msg.z = ghost_z
+                        self.marker_publisher.publish(point_msg)
 
-            label_img = label(mask)
-            regions = regionprops(label_img)
+                        self.get_logger().info(f"Fantome détecté /// x = {ghost_x}  y = {ghost_y}  z = {ghost_z}")  
 
-            for props in regions:
-                if props.area < 30:
-                    continue
-
-                minr, minc, maxr, maxc = props.bbox
-                x_pixel, y_pixel = int((minc + maxc) / 2), int((minr + maxr) / 2)
-                depth = depth_frame.get_distance(x_pixel, y_pixel)
-
-                if depth <= 0 or depth > 2:
-                    continue
-
-                pixel_width = maxc - minc
-                pixel_height = maxr - minr
-
-                aspect_ratio = pixel_width / pixel_height if pixel_height != 0 else 0
-
-                if aspect_ratio > 1.4 or aspect_ratio < 0.7:
-                    continue
-                
-                color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
-                dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x_pixel, y_pixel], depth)
-
-                ghost_x = depth
-                ghost_y = -dy
-                ghost_z = dz
-
-                pixel_width = maxc - minc
-                pixel_height = maxr - minr
-                area_width = (pixel_width / color_intrin.fx) * depth
-                area_height = (pixel_height / color_intrin.fy) * depth
-                area = area_width * area_height
-
-                target_area = 0.07 * 0.07  
-                area_tolerance = 0.03 * 0.07 
-                if not (target_area - area_tolerance <= area <= target_area + area_tolerance):
-                    continue
-
-                region_mask = mask[minr:maxr, minc:maxc]
-                white_pixel_count = np.sum(region_mask == 255)
-                if white_pixel_count < 30:
-                    continue
-
-
-                vertical_lengths = np.sum(region_mask, axis=0) // 255  
-                horizontal_lengths = np.sum(region_mask, axis=1) // 255   
-
-                max_vertical_length = np.max(vertical_lengths)
-                max_horizontal_length = np.max(horizontal_lengths)
-
-                if max_vertical_length > 2 * max_horizontal_length:
-                    self.get_logger().info("Region filtrée en raison de longueur verticale excessive.")
-                    continue
-                
-                
-                self.detected_ghosts[self.ghost_id] = (ghost_x, ghost_y, ghost_z)
-
-
-                point_msg = Point()
-                point_msg.x = ghost_x
-                point_msg.y = ghost_y
-                point_msg.z = ghost_z
-                self.marker_publisher.publish(point_msg)
-
-
-                msg = String()
-                msg.data = f"Ghost {self.ghost_id} détecté à (x={ghost_x:.2f}, y={ghost_y:.2f}, z={ghost_z:.2f})"
-                self.string_publisher.publish(msg)
-                self.get_logger().info(msg.data)
-
-                self.ghost_id += 1
-
-                cv2.rectangle(color_image, (minc, minr), (maxc, maxr), (0, 0, 255), 2) 
-                cv2.putText(color_image, f"ID: {self.ghost_id - 1}", (minc, minr - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                cv2.putText(color_image, f"Profondeur: {depth:.2f}m", (minc, maxr + 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-
-            combined_image = np.hstack((color_image, depth_colormap))
-            cv2.imshow("Détection de Ghosts", combined_image)
+            # Display the images or further processing
+            cv2.namedWindow('RealSense', cv2.WINDOW_AUTOSIZE)
+            cv2.imshow("1", frame)
             cv2.waitKey(1)
+                    
 
         except Exception as e:
             self.get_logger().error(f"Erreur lors du traitement des images : {e}")
