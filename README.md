@@ -34,14 +34,23 @@ cd ultralytics
 pip install -e .
 ```
 
-## Récupération du Projet
+## Parametres
+
+Il est possible de modifier plusieurs paramètres dans le code afin de changer le comportement du robot.
+- Les paramètres de vitesse de déplacement sont définis dans le script 
+basic_move
+- Les paramètres de détection de l'environnement (capteur LiDAR) sont définis dans le script scan_echo
+- Les transformations et le placement des markers sont effectués dans le script place_markers. Le script test_markers_to_place envoie des markers aléatoires dans le topic /markers_to_place à des fins de tests.
+
+
+## Get Started
+
+### Install
 
    ```bash
    git clone https://github.com/JulesLaBulle/uvlarm-Dominique.git
    cd uvlarm-Dominique
    ```
-
-## Construction et Sourcing
 
    ```bash
    colcon build
@@ -49,6 +58,8 @@ pip install -e .
    ```
 
 ## Lancement des Simulations et Démos
+
+Pour chaque Challenge, une fois que le système est lancé et initialisé, une pression sur le bouton B0 lance le déplacement du robot. Ce déplacement peut être mis en pause en soulevant le robot ou en pressant le bouton B1.
 
 ### Challenge 1
 
@@ -70,7 +81,8 @@ ros2 launch uvlarm-Dominique launch_challenge2.yaml
   - `challenge1_rviz_config.rviz` 
   - `slam_config.rviz`
   - `default.rviz` 
-  
+
+- **`include`** : Contient les données d'entrainement du modèle YOLO
 
 - **`launch`** : 
   - `launch_basic_move.yaml` : Lancement du déplacement du robot
@@ -81,9 +93,7 @@ ros2 launch uvlarm-Dominique launch_challenge2.yaml
   - `simulation_v2_launch.yaml` : Lancement de la simulation pour le Challenge 2
   - `launch_challenge2.yaml` : Lancement de la démonstration pour le Challenge 2
   - `launch_vision.yaml` : Lancement de la detection des fantomes
-
-  
-
+ 
 - **`scripts`** : 
   - `basic_move` : Mouvement du robot
   - `camera` : Récupération et analyse des images
