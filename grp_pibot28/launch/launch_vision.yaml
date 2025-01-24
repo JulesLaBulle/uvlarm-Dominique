@@ -1,0 +1,5 @@
+launch:
+    - node:
+        pkg: "grp_pibot28"
+        exec: "detect_ghost"
+        name: "detect_ghost"

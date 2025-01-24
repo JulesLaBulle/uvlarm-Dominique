@@ -97,7 +97,7 @@ class GhostDetectorNode(Node):
                         
                         depth = depth_frame.get_distance(int(x_on_screen), int(y_on_screen))
             
-                        if depth <= 0.2 or depth > 2.5:
+                        if depth <= 0.2 or depth > 2:
                             return
 
                         color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics

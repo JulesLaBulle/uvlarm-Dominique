@@ -28,6 +28,10 @@ https://docs.ros.org/en/iron/Installation/Ubuntu-Install-Debs.html
 ```bash
 sudo apt update && sudo apt install -y ros-iron-rviz2 ros-iron-gazebo-ros-pkgs python3-numpy python3-opencv python3-sklearn
 
+cd
+git clone https://github.com/ultralytics/ultralytics.git
+cd ultralytics
+pip install -e .
 ```
 
 ## Récupération du Projet
@@ -46,39 +50,51 @@ sudo apt update && sudo apt install -y ros-iron-rviz2 ros-iron-gazebo-ros-pkgs p
 
 ## Lancement des Simulations et Démos
 
-### Simulation avec RViz
+### Challenge 1
 
 ```bash
 ros2 launch uvlarm-Dominique simulation_launch.yaml
+ros2 launch uvlarm-Dominique launch_challenge1.yaml
 ```
-### Démonstration 
 
-   ```bash
-   ros2 launch uvlarm-Dominique launch_challenge1.yaml
-   ```
+### Challenge 2
+
+```bash
+ros2 launch uvlarm-Dominique simulation_v2_launch.yaml
+ros2 launch uvlarm-Dominique launch_challenge2.yaml
+```
 
 ## Structure du Projet
 
 - **`config`** : Fichiers de configuration pour les lancements de rviz2
   - `challenge1_rviz_config.rviz` 
-  - `slam_config.rviz` 
+  - `slam_config.rviz`
+  - `default.rviz` 
+  
 
 - **`launch`** : 
   - `launch_basic_move.yaml` : Lancement du déplacement du robot
   - `launch_camera.yaml` : Lancement de la détection de pixels verts
   - `launch_challenge1.yaml` : Lancement de la démonstration pour le challenge 1
-  - `launch_slam.yaml` : Lancement du robot avec cartographie dans rviz2
   - `simulation_launch.yaml` : Lancement de la simulation pour le Challenge 1
+  
+  - `simulation_v2_launch.yaml` : Lancement de la simulation pour le Challenge 2
+  - `launch_challenge2.yaml` : Lancement de la démonstration pour le Challenge 2
+  - `launch_vision.yaml` : Lancement de la detection des fantomes
+
+  
 
 - **`scripts`** : 
   - `basic_move` : Mouvement du robot
   - `camera` : Récupération et analyse des images
-  - `detect_bottle` : Détection des bouteilles (IA)
+  - `detect_green_object` : Détection d'objets verts sans distinction (Challenge 1)
+  - `detect_bottle` : Détection des bouteilles 
   - `detect_ghost` : Détection des pixels verts
   - `scan_echo` : Récupération et traitement des données du capteur LIDAR
-  - `test_markers` : Placeur de marqueurs arbitraires sur rviz pour des tests
+  - `test_markers_to_place` : Envoie des marqueurs aléatoirement dans un topic pour des tests
+  - `place_markers`: Réalise les transformations sur les coordonées envoyées par la camera et place les marqueurs sur rviz 
+
 
 - **`CMakeLists.txt`** 
 - **`package.xml`** 
 - **`README.md`** dans le dossier racine du package
-
