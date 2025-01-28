@@ -6,7 +6,10 @@ Nous avons fait le choix de nommer notre robot Dominique afin de faciliter nos c
 - Ruying Ji
 - Jules Ramaen
 - Guillaume Toupance
-
+### Vidéo de présentation :
+```bash
+https://www.youtube.com/watch?v=xRA7_nOJOTo
+```
 ## Prérequis
 
 ### Logiciels et outils nécessaires
